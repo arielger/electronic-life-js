@@ -1,15 +1,38 @@
-var plan = ["############################",
-            "#      #    #      o      ##",
-            "#                          #",
-            "#     %    #####           #",
-            "##         #   #    ##     #",
-            "###           ##     #     #",
-            "#           ###      #     #",
-            "#   ####                   #",
-            "#   ##       o             #",
-            "# o  #         o       ### #",
-            "#    #                     #",
-            "############################"];
+//Common functions, objects
+
+var directions = {
+  "n":  new Vector( 0, -1),
+  "ne": new Vector( 1, -1),
+  "e":  new Vector( 1,  0),
+  "se": new Vector( 1,  1),
+  "s":  new Vector( 0,  1),
+  "sw": new Vector(-1,  1),
+  "w":  new Vector(-1,  0),
+  "nw": new Vector(-1, -1)
+};
+
+var directionNames = "n ne e se s sw w nw".split(" ");
+
+function randomElement(array){
+      //Math.floor round number to integer
+      return array[Math.floor(Math.random() * array.length)];
+}
+
+function elementFromChar(legend, ch){
+      if(ch == " ")
+            return null;
+
+      var element = new legend[ch](); // legend["#"] = Wall  legend["o"] = BouncingCritter
+      element.originChar = ch;
+      return element;
+}
+
+function charFromElement(element){
+      if (element == null)
+            return " ";
+      else
+            return element.originChar;
+}
 
 //Vector
 
@@ -17,7 +40,6 @@ function Vector(x , y){
       this.x = x;
       this.y = y;
 }
-
 Vector.prototype.plus = function(other){
       return new Vector(this.x + other.x, this.y + other.y);
 }
@@ -49,72 +71,7 @@ Grid.prototype.forEach = function(f, context){
       }
 };
 
-var directions = {
-  "n":  new Vector( 0, -1),
-  "ne": new Vector( 1, -1),
-  "e":  new Vector( 1,  0),
-  "se": new Vector( 1,  1),
-  "s":  new Vector( 0,  1),
-  "sw": new Vector(-1,  1),
-  "w":  new Vector(-1,  0),
-  "nw": new Vector(-1, -1)
-};
-
-var directionNames = "n ne e se s sw w nw".split(" ");
-
-function randomElement(array){
-      //Math.floor round number to integer
-      return array[Math.floor(Math.random() * array.length)];
-}
-
-
-//Critter
-function BouncingCritter(){
-      this.direction = randomElement(directionNames);
-}
-BouncingCritter.prototype.act = function(view){
-      if(view.look(this.direction) != " ")
-            this.direction = view.find(" ") || "s";
-      return {type: "move", direction: this.direction}
-}
-
-//Wall
-function Wall(){}
-
-//Wall Follower
-
-function WallFollower(){
-      this.dir = "s";
-}
-
-WallFollower.prototype.act = function(view){
-      var start = this.dir;
-      if(view.look(dirPlus(this.dir, -3)) != " ")
-            start = this.dir = dirPlus(this.dir, -2);
-      while(view.look(this.dir) != " "){
-            this.dir = dirPlus(this.dir, 1);
-            if (this.dir == start) break;
-      }
-
-      return {type:"move", direction: this.dir};
-}
-
 //World
-function elementFromChar(legend, ch){
-      if(ch == " ")
-            return null;
-
-      var element = new legend[ch](); // legend["#"] = Wall  legend["o"] = BouncingCritter
-      element.originChar = ch;
-      return element;
-}
-
-function charFromElement(element){
-      if (element == null)
-            return " ";
-      else
-            return element.originChar;
-}
 
 function World(map, legend) {
   var grid = new Grid(map[0].length, map.length);
@@ -127,7 +84,6 @@ function World(map, legend) {
                elementFromChar(legend, line[x]));
   });
 }
-
 World.prototype.toString = function(){
       var output = "";
       for(var y = 0; y < this.grid.height; y++){
@@ -139,7 +95,6 @@ World.prototype.toString = function(){
       }
       return output;
 }
-
 World.prototype.turn = function() {
   var acted = [];
   this.grid.forEach(function(critter, vector) {
@@ -149,19 +104,17 @@ World.prototype.turn = function() {
     }
   }, this);
 };
-
 World.prototype.letAct = function(critter, vector){
       var action = critter.act(new View(this, vector));
       if (action && action.type == "move") {
-            var dest = this.checkDestionation(action, vector);
+            var dest = this.checkDestination(action, vector);
             if (dest && this.grid.set(dest) == null) {
                   this.grid.set(vector, null);
                   this.grid.set(dest, critter);
             };
       };
 };
-
-World.prototype.checkDestionation = function(action, vector){
+World.prototype.checkDestination = function(action, vector){
       if (directions.hasOwnProperty(action.direction)) {
             var dest = vector.plus(directions[action.direction]);
             if (this.grid.isInside(dest))
@@ -199,29 +152,22 @@ View.prototype.find = function(ch){
       return randomElement(found);
 };
 
-//Wall Follower
-
-function dirPlus(dir, n){
-      var index = directionNames.indexOf(dir);
-      return directionNames[(index + n + 8) % 8];
+//Lifelike World
+function LifelikeWorld(map, legend){
+  World.call(this, map, legend);
 }
 
-//Print the world
-var world = new World(plan, {"#": Wall,
-                             "o": BouncingCritter,
-                             "%": WallFollower});
+LifelikeWorld.prototype = Object.create(World.prototype);
 
-var mapRefreshState = false;
+LifelikeWorld.prototype.letAct = function(critter, vector){
+  var action = critter.act(new View(this, vector));
+  var handled = action &&
+                action.type in actionTypes &&
+                actionTypes[action.type].call(this, critter, vector, action);
 
-function refreshMap(){
-      world.turn();
-      document.getElementById("world").innerHTML = world.toString();
-}
-
-function setMapInterval(){
-      if(!mapRefreshState)
-            int = setInterval(refreshMap,200);
-            mapRefreshState = true;
-}
-
-setMapInterval();
+  if(!handled){
+    critter.energy -= 0.2;
+    if(critter.energy <= 0)
+      this.grid.set(vector, null);
+  }
+};
